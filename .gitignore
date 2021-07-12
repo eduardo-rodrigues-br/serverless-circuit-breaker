@@ -126,10 +126,10 @@ $RECYCLE.BIN/
 *.lnk
 
 # AWS sam folder
-.aws-sam/
+**/.aws-sam/
 
 # VS Code folder
-.vscode/
+**/.vscode/
 
 samconfig.toml
 
