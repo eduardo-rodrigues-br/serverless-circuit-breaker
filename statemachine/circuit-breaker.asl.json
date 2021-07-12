@@ -1,0 +1,150 @@
+{
+  "Comment": "Serverless circuit breaker orchestrator",
+  "StartAt": "Get circuit breaker data",
+  "States": {
+    "Get circuit breaker data": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:getItem",
+      "Parameters": {
+        "TableName": "${CircuitBreakersTable}",
+        "Key": {
+          "id": {
+            "S": "${DefaultFunctionName}"
+          }
+        }
+      },
+      "ResultPath": "$.circuit-breaker",
+      "Next": "Is circuit breaker open?"
+    },
+    "Is circuit breaker open?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Or": [
+            {
+              "Variable": "$.circuit-breaker.Item.state.S",
+              "StringMatches": "OPEN"
+            },
+            {
+              "Variable": "$.circuit-breaker.Item.state.S",
+              "StringMatches": "HALF"
+            }
+          ],
+          "Next": "Fallback function configured?"
+        }
+      ],
+      "Default": "Invoke default function"
+    },
+    "Fallback function configured?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.circuit-breaker.Item.fallback",
+          "IsPresent": false,
+          "Next": "Return default response"
+        }
+      ],
+      "Default": "Invoke fallback function"
+    },
+    "Return default response": {
+      "Type": "Pass",
+      "End": true,
+      "Result": {
+        "statusCode": 503,
+        "body": "Functionality temporarily unavailable. Please try again later"
+      }
+    },
+    "Invoke fallback function": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "OutputPath": "$.Payload",
+      "Parameters": {
+        "Payload.$": "$",
+        "FunctionName.$": "$.circuit-breaker.Item.fallback.S"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        }
+      ],
+      "End": true
+    },
+    "Invoke default function": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "ResultPath": "$.function-result",
+      "Parameters": {
+        "Payload.$": "$",
+        "FunctionName": "${DefaultFunctionName}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "Check function execution"
+    },
+    "Check function execution": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.function-result.Payload.statusCode",
+          "NumericGreaterThanEquals": 400,
+          "Next": "Needs retry?"
+        }
+      ],
+      "Default": "Handle circuit breaker"
+    },
+    "Needs retry?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.retryCount",
+          "NumericLessThanPath": "$.circuitBreaker.retryAttemps",
+          "Next": "Invoke default function"
+        }
+      ],
+      "Default": "Handle circuit breaker"
+    },
+    "Handle circuit breaker": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "ResultPath": "$.handle-circuit-breaker",
+      "Parameters": {
+        "TableName": "${CircuitBreakersTable}",
+        "Key": {
+          "id": "${DefaultFunctionName}"
+        },
+        "UpdateExpression": "SET #s = :state",
+        "ExpressionAttributeValues": {
+          ":state": {
+            "S": "CLOSED"
+          }
+        },
+        "ExpressionAttributeNames": {
+          "#s": "state"
+        }
+      },
+      "Next": "Sanitize response"
+    },
+    "Sanitize response": {
+      "Type": "Pass",
+      "End": true,
+      "OutputPath": "$.function-result.Payload"
+    }
+  }
+}

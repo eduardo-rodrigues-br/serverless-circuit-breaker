@@ -1,0 +1,32 @@
+openapi: "3.0.1"
+info:
+  title: "Payments API"
+  version: "2021-07-08 15:32:29UTC"
+  description: "Digital payments API"
+paths:
+  /payment:
+    post:
+      responses:
+        default:
+          description: "Default response for POST /"
+      x-amazon-apigateway-integration:
+        integrationSubtype: "StepFunctions-StartSyncExecution"
+        credentials:
+          Fn::GetAtt: [HttpApiRole, Arn]
+        requestParameters:
+          Input: "$request.body"
+          StateMachineArn: 
+            Fn::GetAtt: [CircuitBreakerStateMachine, Arn] 
+        payloadFormatVersion: "1.0"
+        type: "aws_proxy"
+        connectionType: "INTERNET"
+x-amazon-apigateway-cors:
+  allowMethods:
+  - "POST"
+  allowHeaders:
+  - "content-type"
+  maxAge: 0
+  allowCredentials: false
+  allowOrigins:
+  - "*"
+x-amazon-apigateway-importexport-version: "1.0"

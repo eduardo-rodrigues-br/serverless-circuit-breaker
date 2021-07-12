@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Serverless Circuit Breaker
+
+  Sample SAM Template for Serverless Circuit Breaker
+  
+Globals:
+  Function:
+    Timeout: 3
+    Runtime: nodejs14.x
+
+Resources:
+##########################################################################
+#   HTTP API                                                             #
+##########################################################################
+  PaymentsHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      DefinitionBody:
+        'Fn::Transform':
+          Name: 'AWS::Include'
+          Parameters:
+            Location: definitions/api.yaml
+
+##########################################################################
+#  State Machine                                                         #
+##########################################################################
+  CircuitBreakerStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/circuit-breaker.asl.json
+      Tracing:
+        Enabled: true
+      DefinitionSubstitutions:
+        DefaultFunctionName: !Ref DefaultFunction
+        FallbackFunctionName: !Ref FallbackFunction
+        CircuitBreakersTable: !Ref CircuitBreakersTable
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref DefaultFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref FallbackFunction
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CircuitBreakersTable
+      Type: EXPRESS
+
+##########################################################################
+#  Lambda functions                                                      #
+##########################################################################
+  DefaultFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/
+      Handler: make-payment.handler
+
+  FallbackFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/
+      Handler: make-payment-fallback.handler
+
+##########################################################################
+#   Tables                                                               #
+##########################################################################
+  CircuitBreakersTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      TableName: !Sub CircuitBreakers
+      
+##########################################################################
+#   Roles                                                                #
+##########################################################################
+  HttpApiRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - apigateway.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+      - PolicyName: AllowSFNExec
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action: "states:StartSyncExecution"
+              Resource: !GetAtt CircuitBreakerStateMachine.Arn
+
+##########################################################################
+#   Outputs                                                              #
+##########################################################################
+Outputs:
+  PaymentApi:
+    Description: "API Gateway endpoint URL for Prod stage for Payments API"
+    Value: !Sub "https://${PaymentsHttpApi}.execute-api.${AWS::Region}.amazonaws.com/payment"
+  DefaultFunction:
+    Description: "Default function ARN"
+    Value: !GetAtt DefaultFunction.Arn
+  FallbackFunction:
+    Description: "Fallback function ARN"
+    Value: !GetAtt FallbackFunction.Arn
