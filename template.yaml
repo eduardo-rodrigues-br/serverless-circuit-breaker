@@ -111,6 +111,7 @@ Resources:
     Version: '1.0'
     Properties:
       DefaultFunction: !Ref DefaultFunction
+      FallbackFunction: !Ref FallbackFunction
       ServiceToken: !GetAtt 'FillCircuitBreaker.Arn'
 
 ##########################################################################

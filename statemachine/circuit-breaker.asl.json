@@ -51,7 +51,9 @@
       "End": true,
       "Result": {
         "statusCode": 503,
-        "body": "Functionality temporarily unavailable. Please try again later"
+        "body": {
+          "message": "Functionality temporarily unavailable. Please try again later"
+        }
       }
     },
     "Invoke fallback function": {

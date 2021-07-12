@@ -16,7 +16,10 @@ exports.handler = (event, context) => {
             },
             "state": {
                 "S": "CLOSED"
-            }
+            },
+            "fallback": {
+                "S": event.ResourceProperties.FallbackFunction
+            } 
         }
     }, function(err, data) {
         if (err) {
