@@ -20,17 +20,30 @@
       "Type": "Choice",
       "Choices": [
         {
-          "Or": [
+          "And": [
             {
               "Variable": "$.circuit-breaker.Item.state.S",
               "StringMatches": "OPEN"
             },
             {
-              "Variable": "$.circuit-breaker.Item.state.S",
-              "StringMatches": "HALF"
+              "Variable": "$.circuit-breaker.Item.nextAttempt.S",
+              "TimestampGreaterThanPath": "$$.State.EnteredTime"
             }
           ],
           "Next": "Fallback function configured?"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.circuit-breaker.Item.state.S",
+              "StringMatches": "OPEN"
+            },
+            {
+              "Variable": "$.circuit-breaker.Item.nextAttempt.S",
+              "TimestampLessThanEqualsPath": "$$.State.EnteredTime"
+            }
+          ],
+          "Next": "Set circuit to half open"
         }
       ],
       "Default": "Invoke default function"
@@ -50,10 +63,8 @@
       "Type": "Pass",
       "End": true,
       "Result": {
-        "statusCode": 503,
-        "body": {
-          "message": "Functionality temporarily unavailable. Please try again later"
-        }
+        "statusCode": 200,
+        "body": "Functionality temporarily unavailable. Please try again later"
       }
     },
     "Invoke fallback function": {
@@ -86,59 +97,224 @@
         "Payload.$": "$",
         "FunctionName": "${DefaultFunctionName}"
       },
-      "Retry": [
+      "Next": "Handle circuit breaker",
+      "TimeoutSeconds": 30,
+      "Catch": [
         {
           "ErrorEquals": [
-            "Lambda.ServiceException",
-            "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "States.ALL"
           ],
-          "IntervalSeconds": 2,
-          "MaxAttempts": 6,
-          "BackoffRate": 2
+          "Next": "Handle error",
+          "ResultPath": "$.function-result.Payload"
         }
-      ],
-      "Next": "Check function execution"
+      ]
     },
-    "Check function execution": {
+    "Handle error": {
       "Type": "Choice",
       "Choices": [
         {
-          "Variable": "$.function-result.Payload.statusCode",
-          "NumericGreaterThanEquals": 400,
-          "Next": "Needs retry?"
+          "Or": [
+            {
+              "Variable": "$.circuit-breaker.Item.failureCount.N",
+              "StringGreaterThanEqualsPath": "$.circuit-breaker.Item.failureThreshold.N"
+            },
+            {
+              "And": [
+                {
+                  "Variable": "$.increment-failure-count",
+                  "IsPresent": true
+                },
+                {
+                  "Variable": "$.increment-failure-count.Attributes.failureCount.N",
+                  "StringGreaterThanEqualsPath": "$.circuit-breaker.Item.failureThreshold.N"
+                }
+              ]
+            }
+          ],
+          "Next": "Open circuit"
         }
       ],
-      "Default": "Handle circuit breaker"
-    },
-    "Needs retry?": {
-      "Type": "Choice",
-      "Choices": [
-        {
-          "Variable": "$.retryCount",
-          "NumericLessThanPath": "$.circuitBreaker.retryAttemps",
-          "Next": "Invoke default function"
-        }
-      ],
-      "Default": "Handle circuit breaker"
+      "Default": "Increment failure count"
     },
     "Handle circuit breaker": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Or": [
+            {
+              "And": [
+                {
+                  "Variable": "$.function-result.Payload.statusCode",
+                  "NumericGreaterThanEquals": 400
+                },
+                {
+                  "Variable": "$.circuit-breaker.Item.failureCount.N",
+                  "StringLessThanEqualsPath": "$.circuit-breaker.Item.failureThreshold.N"
+                },
+                {
+                  "Not": {
+                    "Variable": "$.increment-failure-count",
+                    "IsPresent": true
+                  }
+                }
+              ]
+            },
+            {
+              "And": [
+                {
+                  "Variable": "$.function-result.Payload.statusCode",
+                  "NumericGreaterThanEquals": 400
+                },
+                {
+                  "Variable": "$.increment-failure-count",
+                  "IsPresent": true
+                },
+                {
+                  "Variable": "$.increment-failure-count.Attributes.failureCount.N",
+                  "StringLessThanEqualsPath": "$.circuit-breaker.Item.failureThreshold.N"
+                }
+              ]
+            }
+          ],
+          "Next": "Increment failure count"
+        },
+        {
+          "Or": [
+            {
+              "And": [
+                {
+                  "Variable": "$.function-result.Payload.statusCode",
+                  "NumericGreaterThanEquals": 400
+                },
+                {
+                  "Variable": "$.circuit-breaker.Item.failureCount.N",
+                  "StringGreaterThanPath": "$.circuit-breaker.Item.failureThreshold.N"
+                }
+              ]
+            },
+            {
+              "And": [
+                {
+                  "Variable": "$.increment-failure-count",
+                  "IsPresent": true
+                },
+                {
+                  "Variable": "$.increment-failure-count.Attributes.failureCount.N",
+                  "StringGreaterThanPath": "$.circuit-breaker.Item.failureThreshold.N"
+                }
+              ]
+            }
+          ],
+          "Next": "Open circuit"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.function-result.Payload.statusCode",
+              "NumericLessThan": 400
+            },
+            {
+              "Variable": "$.circuit-breaker.Item.successCount.N",
+              "StringLessThanPath": "$.circuit-breaker.Item.successThreshold.N"
+            },
+            {
+              "Or": [
+                {
+                  "Variable": "$.circuit-breaker.Item.state.S",
+                  "StringMatches": "OPEN"
+                },
+                {
+                  "Variable": "$.circuit-breaker.Item.state.S",
+                  "StringMatches": "HALF"
+                }
+              ]
+            }
+          ],
+          "Next": "Increment success count"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.function-result.Payload.statusCode",
+              "NumericLessThan": 400
+            },
+            {
+              "Variable": "$.circuit-breaker.Item.state.S",
+              "StringMatches": "HALF"
+            },
+            {
+              "Variable": "$.circuit-breaker.Item.successCount.N",
+              "StringGreaterThanEquals": "$.circuit-breaker.Item.successThreshold.N"
+            }
+          ],
+          "Next": "Close circuit"
+        }
+      ],
+      "Default": "Sanitize response"
+    },
+    "Open circuit": {
       "Type": "Task",
       "Resource": "arn:aws:states:::dynamodb:updateItem",
-      "ResultPath": "$.handle-circuit-breaker",
       "Parameters": {
         "TableName": "${CircuitBreakersTable}",
         "Key": {
           "id": "${DefaultFunctionName}"
         },
-        "UpdateExpression": "SET #s = :state",
+        "UpdateExpression": "SET successCount = :start, failureCount = :start, #s = :state",
         "ExpressionAttributeValues": {
+          ":start": {
+            "N": "0"
+          },
           ":state": {
-            "S": "CLOSED"
+            "S": "OPEN"
           }
         },
         "ExpressionAttributeNames": {
           "#s": "state"
+        }
+      },
+      "Next": "Sanitize response",
+      "ResultPath": "$.open-circuit-breaker"
+    },
+    "Increment failure count": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${CircuitBreakersTable}",
+        "Key": {
+          "id": "${DefaultFunctionName}"
+        },
+        "UpdateExpression": "SET failureCount = if_not_exists(failureCount, :start) + :increment, successCount = :start",
+        "ExpressionAttributeValues": {
+          ":start": {
+            "N": "0"
+          },
+          ":increment": {
+            "N": "1"
+          }
+        },
+        "ReturnValues": "UPDATED_NEW"
+      },
+      "Next": "Invoke default function",
+      "ResultPath": "$.increment-failure-count"
+    },
+    "Increment success count": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "ResultPath": "$.increment-success-count",
+      "Parameters": {
+        "TableName": "${CircuitBreakersTable}",
+        "Key": {
+          "id": "${DefaultFunctionName}"
+        },
+        "UpdateExpression": "SET successCount = if_not_exists(successCount, :start) + :increment, failureCount = :start",
+        "ExpressionAttributeValues": {
+          ":start": {
+            "N": "0"
+          },
+          ":increment": {
+            "N": "1"
+          }
         }
       },
       "Next": "Sanitize response"
@@ -147,6 +323,51 @@
       "Type": "Pass",
       "End": true,
       "OutputPath": "$.function-result.Payload"
+    },
+    "Set circuit to half open": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${CircuitBreakersTable}",
+        "Key": {
+          "id": "${DefaultFunctionName}"
+        },
+        "UpdateExpression": "SET #s = :state",
+        "ExpressionAttributeValues": {
+          ":state": {
+            "S": "HALF"
+          }
+        },
+        "ExpressionAttributeNames": {
+          "#s": "state"
+        }
+      },
+      "Next": "Invoke default function",
+      "ResultPath": "$.update-half-open"
+    },
+    "Close circuit": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${CircuitBreakersTable}",
+        "Key": {
+          "id": "${DefaultFunctionName}"
+        },
+        "UpdateExpression": "SET successCount = :start, failureCount = :start, #s = :state",
+        "ExpressionAttributeValues": {
+          ":start": {
+            "N": "0"
+          },
+          ":state": {
+            "S": "CLOSED"
+          }
+        },
+        "ExpressionAttributeNames": {
+          "#s": "state"
+        }
+      },
+      "Next": "Sanitize response",
+      "ResultPath": "$.close-circuit-breaker"
     }
   }
 }

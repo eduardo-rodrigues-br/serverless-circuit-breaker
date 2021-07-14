@@ -19,7 +19,25 @@ exports.handler = (event, context) => {
             },
             "fallback": {
                 "S": event.ResourceProperties.FallbackFunction
-            } 
+            },
+            "successThreshold": {
+                "N": event.ResourceProperties.SuccessThreshold
+            }, 
+            "failureThreshold": {
+                "N": event.ResourceProperties.FailureThreshold
+            }, 
+            "successCount": {
+                "N": 0
+            }, 
+            "failureCount": {
+                "N": 0
+            }, 
+            "timeout": {
+                "N": event.ResourceProperties.CircuitBreakerTimeout
+            },
+            "nextAttempt": {
+                "S":  new Date(Date.now()).toISOString()
+            }
         }
     }, function(err, data) {
         if (err) {
@@ -42,16 +60,14 @@ exports.handler = (event, context) => {
 function sendResponse(event, context, responseStatus, responseData){
     const responseBody = {
         "Status": responseStatus,
-        "Reason":  `See the details in CloudWatch Log Stream: ${event.ResourceProperties.DefaultFunction}`,
-        "PhysicalResourceId": event.ResourceProperties.DefaultFunction,
+        "Reason":  `See the details in CloudWatch Log Stream`,
+        "PhysicalResourceId": "FillCircuitBreakerFunction",
         "StackId": event.StackId,
         "RequestId": event.RequestId,
         "LogicalResourceId": event.LogicalResourceId,
         "NoEcho": false,
         "Data": responseData || {}
     }
-    
-    console.log(responseBody)
 
     axios.put(event.ResponseURL, responseBody).then(data => {
         return "Circuit breaker inserted with success!"
