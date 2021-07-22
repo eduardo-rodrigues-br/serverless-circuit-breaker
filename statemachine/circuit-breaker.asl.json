@@ -254,25 +254,26 @@
     },
     "Open circuit": {
       "Type": "Task",
-      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "TableName": "${CircuitBreakersTable}",
-        "Key": {
-          "id": "${DefaultFunctionName}"
-        },
-        "UpdateExpression": "SET successCount = :start, failureCount = :start, #s = :state",
-        "ExpressionAttributeValues": {
-          ":start": {
-            "N": "0"
-          },
-          ":state": {
-            "S": "OPEN"
-          }
-        },
-        "ExpressionAttributeNames": {
-          "#s": "state"
+        "FunctionName": "${OpenCircuitBreakerFunctionName}",
+        "Payload": {
+          "functionName": "${DefaultFunctionName}",
+          "timeout.$": "$.circuit-breaker.Item.timeout.N"
         }
       },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        }
+      ],
       "Next": "Sanitize response",
       "ResultPath": "$.open-circuit-breaker"
     },

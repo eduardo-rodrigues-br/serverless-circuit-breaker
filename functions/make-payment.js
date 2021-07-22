@@ -1,5 +1,3 @@
-let response;
-
 /**
  *
  * Event doc: https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html#api-gateway-simple-proxy-for-lambda-input-format
@@ -13,17 +11,25 @@ let response;
  * 
  */
 exports.handler = async (event, context) => {
+    let response = {}
+    
     try {
-        response = {
-            'statusCode': 200,
-            'body': JSON.stringify({
-                message: 'Hello from default function'
+        if (Math.random() < 0.6){
+            response.statusCode = 500
+            response.body = JSON.stringify({
+                message: 'Message from default function: Error while proccess payment'
+            })
+        }
+        else{
+            response.statusCode = 200
+            response.body = JSON.stringify({
+                message: 'Message from default function: Payment made with success!'
             })
         }
     } catch (err) {
         console.log(err);
         return err;
     }
-
+    
     return response
 };
