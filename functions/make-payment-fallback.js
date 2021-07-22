@@ -17,7 +17,7 @@ exports.handler = async (event, context) => {
         response = {
             'statusCode': 200,
             'body': JSON.stringify({
-                message: 'Hello from fallback function'
+                message: 'Message from fallback function: Payment scheduled, we will try to proccess your payment again in 5 seconds.'
             })
         }
     } catch (err) {

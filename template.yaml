@@ -22,11 +22,11 @@ Parameters:
     MinValue: 1
     MaxValue: 100
   CircuitBreakerTimeout: 
-    Default: 5000
+    Default: 20000
     Description: Time until attempt to close the circuit once it's open
     Type: Number
     MinValue: 1
-    MaxValue: 30000
+    MaxValue: 60000
 
 Resources:
 ##########################################################################
@@ -54,11 +54,14 @@ Resources:
         DefaultFunctionName: !Ref DefaultFunction
         FallbackFunctionName: !Ref FallbackFunction
         CircuitBreakersTable: !Ref CircuitBreakersTable
+        OpenCircuitBreakerFunctionName: !Ref OpenCircuitBreaker
       Policies:
         - LambdaInvokePolicy:
             FunctionName: !Ref DefaultFunction
         - LambdaInvokePolicy:
             FunctionName: !Ref FallbackFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref OpenCircuitBreaker
         - DynamoDBCrudPolicy:
             TableName: !Ref CircuitBreakersTable
       Type: EXPRESS
@@ -83,6 +86,18 @@ Resources:
     Properties:
       CodeUri: functions/infrastructure/
       Handler: fill-circuit-breaker.handler
+      Environment:
+        Variables:
+          CIRCUIT_BREAKER_TABLE_NAME: !Ref CircuitBreakersTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CircuitBreakersTable
+  
+  OpenCircuitBreaker:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: functions/infrastructure/
+      Handler: open-circuit-breaker.handler
       Environment:
         Variables:
           CIRCUIT_BREAKER_TABLE_NAME: !Ref CircuitBreakersTable
